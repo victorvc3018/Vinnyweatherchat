@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import type { Message } from './types';
+import type { Message, ReplyContext } from './types';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
 import ExitIcon from './components/ExitIcon';
@@ -49,6 +49,7 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   
   const clientRef = useRef<mqtt.MqttClient | null>(null);
   const messagesRef = useRef(messages);
@@ -174,10 +175,27 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
 
   const handleSendMessage = useCallback((inputText: string) => {
     if (!inputText.trim() || !clientRef.current?.connected) return;
-    const newMessage: Message = { id: uuidv4(), text: inputText, senderId: clientId };
+    
+    let replyContext: ReplyContext | undefined = undefined;
+    if (replyingTo) {
+      replyContext = {
+        messageId: replyingTo.id,
+        text: replyingTo.text,
+        senderId: replyingTo.senderId,
+      };
+    }
+    
+    const newMessage: Message = { 
+      id: uuidv4(), 
+      text: inputText, 
+      senderId: clientId,
+      replyTo: replyContext,
+    };
+
     setMessages(prev => [...prev, newMessage]);
     clientRef.current.publish(CHAT_TOPIC, JSON.stringify({ type: 'new_message', payload: newMessage }), { qos: 1 });
-  }, [clientId]);
+    setReplyingTo(null); // Clear reply state after sending
+  }, [clientId, replyingTo]);
   
   const handleDeleteMessage = useCallback((messageId: string) => {
     const message = messages.find(m => m.id === messageId);
@@ -206,6 +224,10 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
       payload: { messageId, emoji, senderId: clientId }
     }), { qos: 1 });
   }, [clientId]);
+  
+  const handleSetReplyTo = useCallback((message: Message) => {
+    setReplyingTo(message);
+  }, []);
 
   const handleDeleteAllHistory = useCallback(() => {
     if (!clientRef.current?.connected) return;
@@ -235,6 +257,7 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
               isLoading={isLoadingHistory}
               onDeleteMessage={handleDeleteMessage}
               onToggleReaction={handleToggleReaction}
+              onSetReplyTo={handleSetReplyTo}
           />
           <header className="absolute top-0 left-0 right-0 z-10 p-4 shadow-lg bg-black/30 backdrop-blur-xl border-b border-white/10 flex items-center justify-center">
               <button onClick={() => setIsDeleteModalOpen(true)} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Delete all history">
@@ -257,6 +280,8 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
             <ChatInput 
                 onSendMessage={handleSendMessage} 
                 disabled={!isConnected || isLoadingHistory}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
             />
           </div>
       </div>
