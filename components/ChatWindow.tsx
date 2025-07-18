@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import type { Message } from '../types';
 import MessageBubble from './MessageBubble';
@@ -31,7 +32,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, localClientId, isLoad
 
   if (isLoading) {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center text-center p-6">
+      <main className="h-full flex flex-col items-center justify-center text-center p-6">
         <LoadingSpinner />
         <p className="text-gray-400 mt-4 text-lg">Loading chat history...</p>
         <p className="text-gray-500 text-sm">Please wait a moment.</p>
@@ -40,8 +41,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, localClientId, isLoad
   }
 
   return (
-    <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2">
-      <div className="max-w-4xl mx-auto">
+    <main className="h-full overflow-y-auto pt-24 pb-28">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-2">
         {messages.map((msg) => (
           <MessageBubble 
             key={msg.id} 
