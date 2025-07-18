@@ -1,6 +1,11 @@
+
 import React from 'react';
 
-const SmileIcon: React.FC = () => (
+interface IconProps {
+  className?: string;
+}
+
+const SmileIcon: React.FC<IconProps> = ({ className }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width="24"
@@ -11,7 +16,7 @@ const SmileIcon: React.FC = () => (
     strokeWidth="2"
     strokeLinecap="round"
     strokeLinejoin="round"
-    className="w-4 h-4 text-gray-400 group-hover:text-white"
+    className={className}
   >
     <circle cx="12" cy="12" r="10"></circle>
     <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
