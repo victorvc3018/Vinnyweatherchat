@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '../types';
 import UserIcon from './UserIcon';
@@ -117,8 +118,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, o
                 ${isLocalUser ? 'right-4' : 'left-4'}
                 ${isMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}
             `}>
-                <button onClick={handleEmojiPickerToggle} className="p-1.5 rounded-full hover:bg-white/20 transition-colors"><SmileIcon/></button>
-                {isLocalUser && <button onClick={handleDelete} className="p-1.5 rounded-full hover:bg-white/20 transition-colors"><TrashIcon/></button>}
+                <button onClick={handleEmojiPickerToggle} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors"><SmileIcon/></button>
+                {isLocalUser && <button onClick={handleDelete} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors"><TrashIcon/></button>}
             </div>
         )}
         
