@@ -5,17 +5,19 @@ import UserIcon from './UserIcon';
 import BotIcon from './BotIcon';
 import TrashIcon from './icons/TrashIcon';
 import SmileIcon from './icons/SmileIcon';
+import ReplyIcon from './icons/ReplyIcon';
 
 interface MessageBubbleProps {
   message: Message;
   localClientId: string;
   onDeleteMessage: (messageId: string) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
+  onSetReplyTo: (message: Message) => void;
 }
 
 const EMOJI_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, onDeleteMessage, onToggleReaction }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, onDeleteMessage, onToggleReaction, onSetReplyTo }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEmojiPickerVisible, setIsEmojiPickerVisible] = useState(false);
   const bubbleContainerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +52,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, o
     e.stopPropagation();
     setIsEmojiPickerVisible(prev => !prev);
   }
+
+  const handleReplyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetReplyTo(message);
+    setIsMenuOpen(false);
+  };
 
   const handleEmojiSelect = (e: React.MouseEvent, emoji: string) => {
     e.stopPropagation();
@@ -97,6 +105,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, o
             className={`px-4 py-3 rounded-2xl max-w-lg md:max-w-2xl transition-all duration-300 cursor-pointer ${bubbleClasses}`}
             onClick={handleToggleMenu}
         >
+            {message.replyTo && (
+              <div className="mb-2 p-2 bg-black/20 rounded-lg border-l-2 border-purple-400">
+                <div className="text-xs font-semibold text-purple-300">
+                  {message.replyTo.senderId === localClientId ? 'You' : message.replyTo.senderId.substring(12, 20)}
+                </div>
+                <p className="text-sm text-gray-300 truncate opacity-80">
+                  {message.replyTo.text}
+                </p>
+              </div>
+            )}
             <p className={`whitespace-pre-wrap ${textColor}`}>{message.text}</p>
         </div>
 
@@ -118,6 +136,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, o
                 ${isLocalUser ? 'right-4' : 'left-4'}
                 ${isMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}
             `}>
+                <button onClick={handleReplyClick} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors">
+                    <ReplyIcon className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+                </button>
                 <button onClick={handleEmojiPickerToggle} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors">
                     <SmileIcon className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
                 </button>
