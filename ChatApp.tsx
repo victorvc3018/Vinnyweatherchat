@@ -228,8 +228,15 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
         onConfirm={handleDeleteAllHistory}
         passcode={PASSCODE}
       />
-      <div className="flex flex-col h-screen bg-transparent text-white antialiased">
-          <header className="relative p-4 shadow-lg bg-black/30 backdrop-blur-xl border-b border-white/10 flex items-center justify-center">
+      <div className="relative h-screen bg-transparent text-white antialiased">
+          <ChatWindow 
+              messages={messages} 
+              localClientId={clientId} 
+              isLoading={isLoadingHistory}
+              onDeleteMessage={handleDeleteMessage}
+              onToggleReaction={handleToggleReaction}
+          />
+          <header className="absolute top-0 left-0 right-0 z-10 p-4 shadow-lg bg-black/30 backdrop-blur-xl border-b border-white/10 flex items-center justify-center">
               <button onClick={() => setIsDeleteModalOpen(true)} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Delete all history">
                   <TrashIcon className="w-5 h-5" />
               </button>
@@ -246,17 +253,12 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
                   {isExiting ? <LoadingSpinner /> : <ExitIcon />}
               </button>
           </header>
-          <ChatWindow 
-              messages={messages} 
-              localClientId={clientId} 
-              isLoading={isLoadingHistory}
-              onDeleteMessage={handleDeleteMessage}
-              onToggleReaction={handleToggleReaction}
-          />
-          <ChatInput 
-              onSendMessage={handleSendMessage} 
-              disabled={!isConnected || isLoadingHistory}
-          />
+          <div className="absolute bottom-0 left-0 right-0 z-10">
+            <ChatInput 
+                onSendMessage={handleSendMessage} 
+                disabled={!isConnected || isLoadingHistory}
+            />
+          </div>
       </div>
     </>
   );
