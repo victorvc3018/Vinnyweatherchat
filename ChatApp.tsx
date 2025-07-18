@@ -11,37 +11,12 @@ const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const TOPIC = 'pro-react-chat-app/persistent-general-chat-v2';
 const HISTORY_API = '/.netlify/functions/chat-history';
 
-// A more robust debounce utility that can be flushed.
-const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  let latestArgs: Parameters<F> | null = null;
-
-  const debounced = (...args: Parameters<F>): void => {
-    latestArgs = args;
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    timeout = setTimeout(() => {
-      if (latestArgs) {
-        func(...latestArgs);
-        latestArgs = null;
-      }
-    }, waitFor);
-  };
-
-  debounced.flush = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    if (latestArgs) {
-      func(...latestArgs);
-      latestArgs = null;
-    }
-  };
-
-  return debounced;
-};
-
+const LoadingSpinner: React.FC = () => (
+    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+);
 
 type ActionType = 'new_message' | 'delete_message' | 'toggle_reaction';
 
@@ -59,44 +34,49 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
+  
   const clientRef = useRef<mqtt.MqttClient | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
-  // Use a ref for the debounced function to call its `flush` method in cleanup.
-  const debouncedSaveRef = useRef(
-    debounce(async (msgs: Message[]) => {
-      const persistentMessages = msgs.filter(m => m.senderId !== 'system' && !m.isError);
-      // Avoid saving if there are only system/error messages, but don't block saving an empty history
-      if (persistentMessages.length === 0 && msgs.length > 0 && msgs.some(m => m.senderId !== 'system' && !m.isError)) return;
+  const saveHistory = useCallback(async (msgs: Message[]) => {
+    const persistentMessages = msgs.filter(m => m.senderId !== 'system' && !m.isError);
+    try {
+      await fetch(HISTORY_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(persistentMessages)
+      });
+    } catch (error) {
+      console.error("Failed to save chat history:", error);
+    }
+  }, []);
 
-      try {
-        await fetch(HISTORY_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(persistentMessages)
-        });
-      } catch (error) {
-        console.error("Failed to save chat history:", error);
-      }
-    }, 1000)
-  );
+  const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const debounced = (...args: Parameters<F>): void => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), waitFor);
+    };
+    return debounced;
+  };
+  
+  const debouncedSave = useRef(debounce((msgs: Message[]) => saveHistory(msgs), 1000)).current;
 
-  // Effect to save messages when they change
   useEffect(() => {
     if (!isLoadingHistory) {
-      debouncedSaveRef.current(messages);
+      debouncedSave(messages);
     }
-  }, [messages, isLoadingHistory]);
+  }, [messages, isLoadingHistory, debouncedSave]);
   
-  // Effect for component mount and unmount logic
   useEffect(() => {
     fetch(HISTORY_API)
       .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch history');
+        if (!res.ok) throw new Error(`Failed to fetch history: ${res.statusText}`);
         return res.json();
       })
-      .then((history: Message[]) => {
-        setMessages(history || []);
-      })
+      .then((history: Message[]) => setMessages(history || []))
       .catch(error => {
         console.error("Error loading chat history:", error);
         setMessages([{
@@ -106,9 +86,7 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
           isError: true,
         }]);
       })
-      .finally(() => {
-        setIsLoadingHistory(false);
-      });
+      .finally(() => setIsLoadingHistory(false));
 
     const client = mqtt.connect(BROKER_URL, { clientId });
     clientRef.current = client;
@@ -124,42 +102,31 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
       if (topic === TOPIC) {
         try {
           const { type, payload: actionPayload }: ActionPayload = JSON.parse(payload.toString());
+          if (type === 'new_message' && actionPayload.senderId === clientId) return;
           
-          switch (type) {
-            case 'new_message': {
-              const { senderId: receivedSenderId } = actionPayload;
-              if (receivedSenderId === clientId) return;
-              setMessages(prev => [...prev, actionPayload]);
-              break;
-            }
-            case 'delete_message': {
-              const { messageId } = actionPayload;
-              setMessages(prev => prev.filter(msg => msg.id !== messageId));
-              break;
-            }
-            case 'toggle_reaction': {
-              const { messageId, emoji, senderId: reactorId } = actionPayload;
-              setMessages(prev =>
-                prev.map(msg => {
+          setMessages(prev => {
+            switch (type) {
+              case 'new_message':
+                return [...prev, actionPayload];
+              case 'delete_message':
+                return prev.filter(msg => msg.id !== actionPayload.messageId);
+              case 'toggle_reaction': {
+                const { messageId, emoji, senderId: reactorId } = actionPayload;
+                return prev.map(msg => {
                   if (msg.id !== messageId) return msg;
-
                   const newReactions = { ...(msg.reactions || {}) };
                   const reactors = newReactions[emoji] || [];
-
-                  if (reactors.includes(reactorId)) {
-                    newReactions[emoji] = reactors.filter(id => id !== reactorId);
-                    if (newReactions[emoji].length === 0) {
-                      delete newReactions[emoji];
-                    }
-                  } else {
-                    newReactions[emoji] = [...reactors, reactorId];
-                  }
+                  newReactions[emoji] = reactors.includes(reactorId)
+                    ? reactors.filter(id => id !== reactorId)
+                    : [...reactors, reactorId];
+                  if (newReactions[emoji].length === 0) delete newReactions[emoji];
                   return { ...msg, reactions: newReactions };
-                })
-              );
-              break;
+                });
+              }
+              default:
+                return prev;
             }
-          }
+          });
         } catch (error) {
           console.error('Error parsing message payload:', error);
         }
@@ -174,51 +141,43 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
     });
     client.on('close', () => setConnectionStatus('Disconnected'));
 
-    // This is the cleanup function that runs when the component unmounts (on exit)
     return () => {
-        // CRITICAL FIX: Immediately save any pending changes before closing.
-        debouncedSaveRef.current.flush();
-        
         if (clientRef.current) {
-            clientRef.current.removeAllListeners();
             clientRef.current.end(true);
         }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
+  
+  const handleExit = async () => {
+    if (isExiting) return;
+    setIsExiting(true);
+
+    await saveHistory(messagesRef.current);
+
+    if (clientRef.current) {
+        clientRef.current.end(true);
+    }
+    
+    onLock();
+  };
 
   const handleSendMessage = useCallback((inputText: string) => {
     if (!inputText.trim() || !clientRef.current?.connected) return;
-
-    const newMessage: Message = {
-        id: uuidv4(),
-        text: inputText,
-        senderId: clientId,
-    };
-    
+    const newMessage: Message = { id: uuidv4(), text: inputText, senderId: clientId };
     setMessages(prev => [...prev, newMessage]);
-
-    const action: ActionPayload = { type: 'new_message', payload: newMessage };
-    clientRef.current.publish(TOPIC, JSON.stringify(action));
+    clientRef.current.publish(TOPIC, JSON.stringify({ type: 'new_message', payload: newMessage }));
   }, [clientId]);
   
   const handleDeleteMessage = useCallback((messageId: string) => {
     const message = messages.find(m => m.id === messageId);
     if (!message || message.senderId !== clientId || !clientRef.current?.connected) return;
-
-    // Immediately update local state for better UX
     setMessages(prev => prev.filter(msg => msg.id !== messageId));
-    
-    const action: ActionPayload = { type: 'delete_message', payload: { messageId } };
-    clientRef.current.publish(TOPIC, JSON.stringify(action));
+    clientRef.current.publish(TOPIC, JSON.stringify({ type: 'delete_message', payload: { messageId } }));
   }, [clientId, messages]);
 
   const handleToggleReaction = useCallback((messageId: string, emoji: string) => {
     if (!clientRef.current?.connected) return;
-
-    // Immediately update local state for better UX
-    setMessages(prev =>
-      prev.map(msg => {
+    setMessages(prev => prev.map(msg => {
         if (msg.id !== messageId) return msg;
         const newReactions = { ...(msg.reactions || {}) };
         const reactors = newReactions[emoji] || [];
@@ -231,12 +190,10 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
         return { ...msg, reactions: newReactions };
       })
     );
-    
-    const action: ActionPayload = {
+    clientRef.current.publish(TOPIC, JSON.stringify({
       type: 'toggle_reaction',
       payload: { messageId, emoji, senderId: clientId }
-    };
-    clientRef.current.publish(TOPIC, JSON.stringify(action));
+    }));
   }, [clientId]);
 
   const isConnected = connectionStatus === 'Connected';
@@ -253,8 +210,8 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
                     <div className={`absolute w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'} animate-ping`}></div>
                 </div>
             </div>
-            <button onClick={onLock} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Exit chat">
-                <ExitIcon />
+            <button onClick={handleExit} disabled={isExiting} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:cursor-wait" aria-label="Exit chat">
+                {isExiting ? <LoadingSpinner /> : <ExitIcon />}
             </button>
         </header>
         <ChatWindow 
