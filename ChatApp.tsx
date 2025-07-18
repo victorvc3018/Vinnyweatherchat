@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message } from './types';
 import ChatWindow from './components/ChatWindow';
@@ -10,17 +11,37 @@ const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const TOPIC = 'pro-react-chat-app/persistent-general-chat-v2';
 const HISTORY_API = '/.netlify/functions/chat-history';
 
-// A simple debounce utility
+// A more robust debounce utility that can be flushed.
 const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let latestArgs: Parameters<F> | null = null;
 
-  return (...args: Parameters<F>): void => {
+  const debounced = (...args: Parameters<F>): void => {
+    latestArgs = args;
     if (timeout) {
       clearTimeout(timeout);
     }
-    timeout = setTimeout(() => func(...args), waitFor);
+    timeout = setTimeout(() => {
+      if (latestArgs) {
+        func(...latestArgs);
+        latestArgs = null;
+      }
+    }, waitFor);
   };
+
+  debounced.flush = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (latestArgs) {
+      func(...latestArgs);
+      latestArgs = null;
+    }
+  };
+
+  return debounced;
 };
+
 
 type ActionType = 'new_message' | 'delete_message' | 'toggle_reaction';
 
@@ -39,30 +60,34 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const clientRef = useRef<mqtt.MqttClient | null>(null);
-  const isInitialLoad = useRef(true);
 
-  const debouncedSave = useCallback(debounce(async (msgs: Message[]) => {
-    const persistentMessages = msgs.filter(m => m.senderId !== 'system' && !m.isError);
-    if (persistentMessages.length === 0 && msgs.length > 0) return;
+  // Use a ref for the debounced function to call its `flush` method in cleanup.
+  const debouncedSaveRef = useRef(
+    debounce(async (msgs: Message[]) => {
+      const persistentMessages = msgs.filter(m => m.senderId !== 'system' && !m.isError);
+      // Avoid saving if there are only system/error messages, but don't block saving an empty history
+      if (persistentMessages.length === 0 && msgs.length > 0 && msgs.some(m => m.senderId !== 'system' && !m.isError)) return;
 
-    try {
-      await fetch(HISTORY_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(persistentMessages)
-      });
-    } catch (error) {
-      console.error("Failed to save chat history:", error);
-    }
-  }, 1000), []);
+      try {
+        await fetch(HISTORY_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(persistentMessages)
+        });
+      } catch (error) {
+        console.error("Failed to save chat history:", error);
+      }
+    }, 1000)
+  );
 
+  // Effect to save messages when they change
   useEffect(() => {
-    if (isInitialLoad.current || isLoadingHistory) {
-      return;
+    if (!isLoadingHistory) {
+      debouncedSaveRef.current(messages);
     }
-    debouncedSave(messages);
-  }, [messages, isLoadingHistory, debouncedSave]);
+  }, [messages, isLoadingHistory]);
   
+  // Effect for component mount and unmount logic
   useEffect(() => {
     fetch(HISTORY_API)
       .then(res => {
@@ -83,7 +108,6 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
       })
       .finally(() => {
         setIsLoadingHistory(false);
-        isInitialLoad.current = false;
       });
 
     const client = mqtt.connect(BROKER_URL, { clientId });
@@ -150,12 +174,17 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
     });
     client.on('close', () => setConnectionStatus('Disconnected'));
 
+    // This is the cleanup function that runs when the component unmounts (on exit)
     return () => {
+        // CRITICAL FIX: Immediately save any pending changes before closing.
+        debouncedSaveRef.current.flush();
+        
         if (clientRef.current) {
             clientRef.current.removeAllListeners();
             clientRef.current.end(true);
         }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
   const handleSendMessage = useCallback((inputText: string) => {
@@ -177,12 +206,31 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
     const message = messages.find(m => m.id === messageId);
     if (!message || message.senderId !== clientId || !clientRef.current?.connected) return;
 
+    // Immediately update local state for better UX
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    
     const action: ActionPayload = { type: 'delete_message', payload: { messageId } };
     clientRef.current.publish(TOPIC, JSON.stringify(action));
   }, [clientId, messages]);
 
   const handleToggleReaction = useCallback((messageId: string, emoji: string) => {
     if (!clientRef.current?.connected) return;
+
+    // Immediately update local state for better UX
+    setMessages(prev =>
+      prev.map(msg => {
+        if (msg.id !== messageId) return msg;
+        const newReactions = { ...(msg.reactions || {}) };
+        const reactors = newReactions[emoji] || [];
+        if (reactors.includes(clientId)) {
+          newReactions[emoji] = reactors.filter(id => id !== clientId);
+          if (newReactions[emoji].length === 0) delete newReactions[emoji];
+        } else {
+          newReactions[emoji] = [...reactors, clientId];
+        }
+        return { ...msg, reactions: newReactions };
+      })
+    );
     
     const action: ActionPayload = {
       type: 'toggle_reaction',
