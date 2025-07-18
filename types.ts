@@ -1,9 +1,16 @@
+export interface ReplyContext {
+  messageId: string;
+  text: string;
+  senderId: string;
+}
+
 export interface Message {
   id: string;
   text: string;
   senderId: string;
   isError?: boolean;
   reactions?: { [emoji: string]: string[] };
+  replyTo?: ReplyContext;
 }
 
 export type WeatherCondition = 
