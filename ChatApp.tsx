@@ -29,8 +29,18 @@ interface ChatAppProps {
     onLock: () => void;
 }
 
+const getPersistentClientId = (): string => {
+  const storedId = localStorage.getItem('pro-react-chat-app-client-id');
+  if (storedId) {
+    return storedId;
+  }
+  const newId = `chat-client-${uuidv4()}`;
+  localStorage.setItem('pro-react-chat-app-client-id', newId);
+  return newId;
+};
+
 const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
-  const [clientId] = useState(() => `chat-client-${uuidv4()}`);
+  const [clientId] = useState(getPersistentClientId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
