@@ -4,12 +4,15 @@ import type { Message } from './types';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
 import ExitIcon from './components/ExitIcon';
+import TrashIcon from './components/icons/TrashIcon';
+import DeleteHistoryModal from './components/DeleteHistoryModal';
 import { v4 as uuidv4 } from 'uuid';
 import mqtt from 'mqtt';
 
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const CHAT_TOPIC = 'pro-react-chat-app/realtime-chat-v3';
 const HISTORY_TOPIC = 'pro-react-chat-app/history-v3';
+const PASSCODE = '3021';
 
 const LoadingSpinner: React.FC = () => (
     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -18,11 +21,11 @@ const LoadingSpinner: React.FC = () => (
     </svg>
 );
 
-type ActionType = 'new_message' | 'delete_message' | 'toggle_reaction';
+type ActionType = 'new_message' | 'delete_message' | 'toggle_reaction' | 'clear_all_history';
 
 interface ActionPayload {
   type: ActionType;
-  payload: any;
+  payload?: any;
 }
 
 interface ChatAppProps {
@@ -45,12 +48,12 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
   const [connectionStatus, setConnectionStatus] = useState('Connecting...');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   
   const clientRef = useRef<mqtt.MqttClient | null>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
-  // This function now saves history via MQTT retained messages
   const saveHistory = useCallback((msgs: Message[]) => {
     if (clientRef.current && clientRef.current.connected) {
       const persistentMessages = msgs.filter(m => m.senderId !== 'system' && !m.isError);
@@ -58,7 +61,6 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
     }
   }, []);
 
-  // Debounce utility to prevent spamming the save function
   const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     const debounced = (...args: Parameters<F>): void => {
@@ -70,51 +72,49 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
   
   const debouncedSave = useRef(debounce((msgs: Message[]) => saveHistory(msgs), 1500)).current;
 
-  // Save messages when they change
   useEffect(() => {
     if (!isLoadingHistory) {
       debouncedSave(messages);
     }
   }, [messages, isLoadingHistory, debouncedSave]);
   
-  // Main effect for MQTT connection and message handling
   useEffect(() => {
     const client = mqtt.connect(BROKER_URL, { clientId });
     clientRef.current = client;
 
     let historyReceived = false;
-
     const historyTimeout = setTimeout(() => {
         if (!historyReceived) {
-            console.log("No history received, proceeding.");
             setIsLoadingHistory(false);
-            client.unsubscribe(HISTORY_TOPIC, () => {
-                client.subscribe(CHAT_TOPIC, (err) => {
-                    if (err) setConnectionStatus('Subscription Failed');
-                });
-            });
+            client.unsubscribe(HISTORY_TOPIC, () => client.subscribe(CHAT_TOPIC, { qos: 1 }));
         }
-    }, 4000); // 4-second timeout for history
+    }, 4000);
 
     client.on('connect', () => {
       setConnectionStatus('Connected');
-      client.subscribe(HISTORY_TOPIC, { qos: 1 }); // Subscribe to history first
+      client.subscribe(HISTORY_TOPIC, { qos: 1 });
     });
 
     client.on('message', (topic, payload) => {
       try {
         const payloadString = payload.toString();
+        if (!payloadString) { // Handle empty retained message for history clearing
+          if (topic === HISTORY_TOPIC) {
+            setMessages([]);
+            setIsLoadingHistory(false);
+            historyReceived = true;
+            clearTimeout(historyTimeout);
+            client.unsubscribe(HISTORY_TOPIC, () => client.subscribe(CHAT_TOPIC, { qos: 1 }));
+          }
+          return;
+        }
+
         if (topic === HISTORY_TOPIC && !historyReceived) {
             historyReceived = true;
             clearTimeout(historyTimeout);
-            const history = JSON.parse(payloadString);
-            setMessages(history || []);
+            setMessages(JSON.parse(payloadString) || []);
             setIsLoadingHistory(false);
-            client.unsubscribe(HISTORY_TOPIC, () => {
-                client.subscribe(CHAT_TOPIC, { qos: 1 }, (err) => {
-                    if (err) setConnectionStatus('Subscription Failed');
-                });
-            });
+            client.unsubscribe(HISTORY_TOPIC, () => client.subscribe(CHAT_TOPIC, { qos: 1 }));
         } else if (topic === CHAT_TOPIC) {
             const { type, payload: actionPayload }: ActionPayload = JSON.parse(payloadString);
             if (type === 'new_message' && actionPayload.senderId === clientId) return;
@@ -138,18 +138,19 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
                     return { ...msg, reactions: newReactions };
                   });
                 }
+                case 'clear_all_history':
+                  return [];
                 default: return prev;
               }
             });
         }
       } catch (error) {
-        console.error('Error parsing payload:', error);
+        console.error('Error processing message:', error);
       }
     });
     
     client.on('reconnect', () => setConnectionStatus('Reconnecting...'));
     client.on('error', (err) => {
-        console.error('Connection error:', err);
         setConnectionStatus('Connection Error');
         client.end();
     });
@@ -157,24 +158,16 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
 
     return () => {
         clearTimeout(historyTimeout);
-        if (clientRef.current) {
-            clientRef.current.end(true);
-        }
+        if (clientRef.current) clientRef.current.end(true);
     };
   }, [clientId]);
   
   const handleExit = () => {
     if (isExiting) return;
     setIsExiting(true);
-
-    // Perform one final, immediate save before exiting
     saveHistory(messagesRef.current);
-
-    // Give a moment for the publish to go through before closing
     setTimeout(() => {
-        if (clientRef.current) {
-            clientRef.current.end(true);
-        }
+        if (clientRef.current) clientRef.current.end(true);
         onLock();
     }, 200);
   };
@@ -214,36 +207,58 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
     }), { qos: 1 });
   }, [clientId]);
 
+  const handleDeleteAllHistory = useCallback(() => {
+    if (!clientRef.current?.connected) return;
+    // Clear the retained message by publishing an empty payload
+    clientRef.current.publish(HISTORY_TOPIC, '', { retain: true, qos: 1 });
+    // Tell all other clients to clear their state
+    clientRef.current.publish(CHAT_TOPIC, JSON.stringify({ type: 'clear_all_history' }), { qos: 1 });
+    // Clear our own state
+    setMessages([]);
+    setIsDeleteModalOpen(false);
+  }, []);
+
   const isConnected = connectionStatus === 'Connected';
 
   return (
-    <div className="flex flex-col h-screen bg-transparent text-white antialiased">
-        <header className="relative p-4 shadow-lg bg-black/30 backdrop-blur-xl border-b border-white/10 flex items-center justify-center">
-            <div className="flex items-center justify-center gap-3">
-                <h1 className="text-xl font-semibold tracking-wider text-gray-200">
-                    Secure Channel
-                </h1>
-                 <div className="relative flex items-center justify-center">
-                    <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
-                    <div className={`absolute w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'} animate-ping`}></div>
-                </div>
-            </div>
-            <button onClick={handleExit} disabled={isExiting} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:cursor-wait" aria-label="Exit chat">
-                {isExiting ? <LoadingSpinner /> : <ExitIcon />}
-            </button>
-        </header>
-        <ChatWindow 
-            messages={messages} 
-            localClientId={clientId} 
-            isLoading={isLoadingHistory}
-            onDeleteMessage={handleDeleteMessage}
-            onToggleReaction={handleToggleReaction}
-        />
-        <ChatInput 
-            onSendMessage={handleSendMessage} 
-            disabled={!isConnected || isLoadingHistory}
-        />
-    </div>
+    <>
+      <DeleteHistoryModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleDeleteAllHistory}
+        passcode={PASSCODE}
+      />
+      <div className="flex flex-col h-screen bg-transparent text-white antialiased">
+          <header className="relative p-4 shadow-lg bg-black/30 backdrop-blur-xl border-b border-white/10 flex items-center justify-center">
+              <button onClick={() => setIsDeleteModalOpen(true)} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Delete all history">
+                  <TrashIcon className="w-5 h-5" />
+              </button>
+              <div className="flex items-center justify-center gap-3">
+                  <h1 className="text-xl font-semibold tracking-wider text-gray-200">
+                      Secure Channel
+                  </h1>
+                   <div className="relative flex items-center justify-center">
+                      <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
+                      <div className={`absolute w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'} animate-ping`}></div>
+                  </div>
+              </div>
+              <button onClick={handleExit} disabled={isExiting} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:cursor-wait" aria-label="Exit chat">
+                  {isExiting ? <LoadingSpinner /> : <ExitIcon />}
+              </button>
+          </header>
+          <ChatWindow 
+              messages={messages} 
+              localClientId={clientId} 
+              isLoading={isLoadingHistory}
+              onDeleteMessage={handleDeleteMessage}
+              onToggleReaction={handleToggleReaction}
+          />
+          <ChatInput 
+              onSendMessage={handleSendMessage} 
+              disabled={!isConnected || isLoadingHistory}
+          />
+      </div>
+    </>
   );
 };
 
