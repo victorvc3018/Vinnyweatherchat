@@ -118,8 +118,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, localClientId, o
                 ${isLocalUser ? 'right-4' : 'left-4'}
                 ${isMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}
             `}>
-                <button onClick={handleEmojiPickerToggle} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors"><SmileIcon/></button>
-                {isLocalUser && <button onClick={handleDelete} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors"><TrashIcon/></button>}
+                <button onClick={handleEmojiPickerToggle} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors">
+                    <SmileIcon className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+                </button>
+                {isLocalUser && 
+                    <button onClick={handleDelete} className="group p-1.5 rounded-full hover:bg-white/20 transition-colors">
+                        <TrashIcon className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </button>
+                }
             </div>
         )}
         
