@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message } from './types';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
-import LockIcon from './components/LockIcon';
+import ExitIcon from './components/ExitIcon';
 import { v4 as uuidv4 } from 'uuid';
 import mqtt from 'mqtt';
 
@@ -205,8 +205,8 @@ const ChatApp: React.FC<ChatAppProps> = ({ onLock }) => {
                     <div className={`absolute w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'} animate-ping`}></div>
                 </div>
             </div>
-            <button onClick={onLock} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Lock and exit">
-                <LockIcon />
+            <button onClick={onLock} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors" aria-label="Exit chat">
+                <ExitIcon />
             </button>
         </header>
         <ChatWindow 
