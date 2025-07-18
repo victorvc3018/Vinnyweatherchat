@@ -17,9 +17,10 @@ interface ChatWindowProps {
   isLoading: boolean;
   onDeleteMessage: (messageId: string) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
+  onSetReplyTo: (message: Message) => void;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ messages, localClientId, isLoading, onDeleteMessage, onToggleReaction }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ messages, localClientId, isLoading, onDeleteMessage, onToggleReaction, onSetReplyTo }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -50,6 +51,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, localClientId, isLoad
             localClientId={localClientId}
             onDeleteMessage={onDeleteMessage}
             onToggleReaction={onToggleReaction}
+            onSetReplyTo={onSetReplyTo}
           />
         ))}
         <div ref={messagesEndRef} />
