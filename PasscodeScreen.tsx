@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 
 interface PasscodeScreenProps {
@@ -5,7 +6,7 @@ interface PasscodeScreenProps {
     onBack: () => void;
 }
 
-const CORRECT_PASSCODE = '3021';
+const CORRECT_PASSCODE = '2005';
 
 const PasscodeScreen: React.FC<PasscodeScreenProps> = ({ onSuccess, onBack }) => {
     const [passcode, setPasscode] = useState('');
