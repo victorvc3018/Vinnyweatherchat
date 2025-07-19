@@ -12,7 +12,7 @@ import mqtt from 'mqtt';
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const CHAT_TOPIC = 'pro-react-chat-app/realtime-chat-v3';
 const HISTORY_TOPIC = 'pro-react-chat-app/history-v3';
-const PASSCODE = '2005';
+const PASSCODE = '3021';
 
 const LoadingSpinner: React.FC = () => (
     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
