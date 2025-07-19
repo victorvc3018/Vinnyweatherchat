@@ -39,7 +39,7 @@ const WeatherApp: React.FC<WeatherAppProps> = ({ onUnlockRequest }) => {
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (search.trim() === "VinnyLari") {
+        if (search.trim() === "VinnyZarah") {
             onUnlockRequest();
             setSearch('');
         } else if (search.trim()) {
